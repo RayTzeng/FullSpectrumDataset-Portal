@@ -91,6 +91,7 @@ export default function PortalApp() {
     { stage1: string; stage2: string }[]
   >([]);
   const [submitState, setSubmitState] = useState('');
+  const [resamplingIndex, setResamplingIndex] = useState<number | null>(null);
 
   useEffect(() => {
     async function loadTasks() {
@@ -167,6 +168,7 @@ export default function PortalApp() {
     setTaskDefinition('');
     setSamplingState('');
     setSubmitState('');
+    setResamplingIndex(null);
   }, [selectedTask]);
 
   function updateQaText(
@@ -198,7 +200,7 @@ export default function PortalApp() {
       });
       setSubmitState('');
     } catch {
-      // Do not overwrite the user's text; only defer validation to submit.
+      // Keep raw text in the editor; validate strictly on submit.
     }
   }
 
@@ -238,6 +240,57 @@ export default function PortalApp() {
       setSamplingState(
         error instanceof Error ? error.message : 'Sampling failed.'
       );
+    }
+  }
+
+  async function handleResampleEntry(entryIndex: number) {
+    if (!selectedTask) return;
+
+    setResamplingIndex(entryIndex);
+    setSubmitState('');
+
+    try {
+      const params = new URLSearchParams({
+        datasetName: selectedTask.datasetName,
+        taskName: selectedTask.taskName,
+        k: '1',
+      });
+
+      const res = await fetch(`/api/sample?${params.toString()}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Resampling failed.');
+      }
+
+      const replacement = data.samples?.[0];
+      if (!replacement) {
+        throw new Error('No replacement sample returned.');
+      }
+
+      setSamples((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = replacement;
+        return next;
+      });
+
+      setSeedInstructions((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = buildSeedEntry(replacement);
+        return next;
+      });
+
+      setQaTextByEntry((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = { stage1: '', stage2: '' };
+        return next;
+      });
+    } catch (error) {
+      setSubmitState(
+        error instanceof Error ? error.message : 'Resampling failed.'
+      );
+    } finally {
+      setResamplingIndex(null);
     }
   }
 
@@ -319,6 +372,32 @@ export default function PortalApp() {
       <div className="grid">
         <div className="stack">
           <div className="card stack">
+            <h2 style={{ margin: 0 }}>Reference materials</h2>
+            <div className="notice">
+              <div>
+                <strong>Guide Sheet:</strong>{' '}
+                <a
+                  href="https://hackmd.io/@E6Umx55CRC2KGVCvqHvKHg/ByG1m9g9-e"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open the guide sheet
+                </a>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <strong>Example process:</strong>{' '}
+                <a
+                  href="https://chatgpt.com/share/69bb5e82-d2f8-8001-af73-9a17a626095a"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open the example process
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div className="card stack">
             <div>
               <label className="label">Dataset</label>
               <select
@@ -393,10 +472,40 @@ export default function PortalApp() {
                 </button>
               </div>
             </div>
+
             {samplingState && <div className="notice">{samplingState}</div>}
+
             <div className="small">
               The API samples from <span className="code-like">train.jsonl.gz</span>{' '}
               under the selected task path.
+            </div>
+
+            <div className="notice">
+              <strong>Notes</strong>
+              <ol style={{ margin: '8px 0 0 20px', padding: 0 }}>
+                <li>
+                  Please refer to the guide sheet and example process before
+                  writing seed instructions.
+                </li>
+                <li>
+                  If a particular question type does not suit the task, it is fine
+                  to omit it. Use your judgment.
+                </li>
+                <li>
+                  Make sure the sampled metadata entries are sufficiently diverse
+                  in the labels (target_field).
+                </li>
+                <li>
+                  Make sure the generated seed instructions are sufficiently diverse
+                  in wording and form.
+                </li>
+                <li>
+                  Enter the seed instructions as line-separated JSON objects, each
+                  containing a <span className="code-like">question</span> and an{' '}
+                  <span className="code-like">answer</span> for the corresponding
+                  metadata entry.
+                </li>
+              </ol>
             </div>
           </div>
 
@@ -476,7 +585,19 @@ export default function PortalApp() {
                   style={{ justifyContent: 'space-between' }}
                 >
                   <strong>Sample #{entryIndex + 1}</strong>
-                  <span className="badge">metadata entry</span>
+                  <div className="row wrap">
+                    <span className="badge">metadata entry</span>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => handleResampleEntry(entryIndex)}
+                      disabled={resamplingIndex === entryIndex}
+                    >
+                      {resamplingIndex === entryIndex
+                        ? 'Resampling...'
+                        : 'Resample this entry'}
+                    </button>
+                  </div>
                 </div>
 
                 <pre>{JSON.stringify(entry.metadata, null, 2)}</pre>
