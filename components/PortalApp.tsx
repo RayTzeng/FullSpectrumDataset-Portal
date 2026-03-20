@@ -71,6 +71,25 @@ function parseQaJsonl(text: string): QAItem[] {
   });
 }
 
+function formatJsonForEditor(value: SampledEntry): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function parseMetadataJson(text: string): SampledEntry {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Metadata JSON is not valid.');
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('Metadata must be a JSON object.');
+  }
+
+  return parsed as SampledEntry;
+}
+
 export default function PortalApp() {
   const [tasks, setTasks] = useState<TaskApiRow[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
@@ -90,6 +109,8 @@ export default function PortalApp() {
   const [qaTextByEntry, setQaTextByEntry] = useState<
     { stage1: string; stage2: string }[]
   >([]);
+  const [metadataTextByEntry, setMetadataTextByEntry] = useState<string[]>([]);
+  const [metadataEditByEntry, setMetadataEditByEntry] = useState<boolean[]>([]);
   const [submitState, setSubmitState] = useState('');
   const [resamplingIndex, setResamplingIndex] = useState<number | null>(null);
 
@@ -165,6 +186,8 @@ export default function PortalApp() {
     setSamples([]);
     setSeedInstructions([]);
     setQaTextByEntry([]);
+    setMetadataTextByEntry([]);
+    setMetadataEditByEntry([]);
     setTaskDefinition('');
     setSamplingState('');
     setSubmitState('');
@@ -200,7 +223,56 @@ export default function PortalApp() {
       });
       setSubmitState('');
     } catch {
-      // Keep raw text in the editor; validate strictly on submit.
+      // Keep editor text as-is; strict validation happens on submit / finish.
+    }
+  }
+
+  function updateMetadataText(entryIndex: number, value: string) {
+    setMetadataTextByEntry((current) => {
+      const next = structuredClone(current);
+      next[entryIndex] = value;
+      return next;
+    });
+  }
+
+  function toggleMetadataEdit(entryIndex: number) {
+    if (!metadataEditByEntry[entryIndex]) {
+      setMetadataEditByEntry((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = true;
+        return next;
+      });
+      return;
+    }
+
+    try {
+      const parsed = parseMetadataJson(metadataTextByEntry[entryIndex] ?? '');
+      setSamples((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = parsed;
+        return next;
+      });
+      setSeedInstructions((current) => {
+        const next = structuredClone(current);
+        if (!next[entryIndex]) return current;
+        next[entryIndex].metadata = parsed;
+        return next;
+      });
+      setMetadataTextByEntry((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = formatJsonForEditor(parsed);
+        return next;
+      });
+      setMetadataEditByEntry((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = false;
+        return next;
+      });
+      setSubmitState('');
+    } catch (error) {
+      setSubmitState(
+        error instanceof Error ? `Sample #${entryIndex + 1}: ${error.message}` : 'Invalid metadata JSON.'
+      );
     }
   }
 
@@ -235,6 +307,8 @@ export default function PortalApp() {
           stage2: qaItemsToJsonl(entry.stage2_QA),
         }))
       );
+      setMetadataTextByEntry(sampled.map((entry) => formatJsonForEditor(entry)));
+      setMetadataEditByEntry(sampled.map(() => false));
       setSamplingState(`Loaded ${sampled.length} sample(s).`);
     } catch (error) {
       setSamplingState(
@@ -285,6 +359,18 @@ export default function PortalApp() {
         next[entryIndex] = { stage1: '', stage2: '' };
         return next;
       });
+
+      setMetadataTextByEntry((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = formatJsonForEditor(replacement);
+        return next;
+      });
+
+      setMetadataEditByEntry((current) => {
+        const next = structuredClone(current);
+        next[entryIndex] = false;
+        return next;
+      });
     } catch (error) {
       setSubmitState(
         error instanceof Error ? error.message : 'Resampling failed.'
@@ -301,10 +387,12 @@ export default function PortalApp() {
 
     try {
       const parsedSeedInstructions = seedInstructions.map((entry, entryIndex) => {
-        const raw = qaTextByEntry[entryIndex] ?? { stage1: '', stage2: '' };
+        const rawQa = qaTextByEntry[entryIndex] ?? { stage1: '', stage2: '' };
+        const rawMetadata = metadataTextByEntry[entryIndex] ?? '';
 
-        const stage1_QA = parseQaJsonl(raw.stage1);
-        const stage2_QA = parseQaJsonl(raw.stage2);
+        const metadata = parseMetadataJson(rawMetadata);
+        const stage1_QA = parseQaJsonl(rawQa.stage1);
+        const stage2_QA = parseQaJsonl(rawQa.stage2);
 
         if (stage1_QA.length === 0) {
           throw new Error(`Sample #${entryIndex + 1}: stage-1 QA cannot be empty.`);
@@ -315,7 +403,7 @@ export default function PortalApp() {
         }
 
         return {
-          metadata: entry.metadata,
+          metadata,
           stage1_QA,
           stage2_QA,
         };
@@ -345,6 +433,7 @@ export default function PortalApp() {
       }
 
       setSeedInstructions(parsedSeedInstructions);
+      setMetadataTextByEntry(parsedSeedInstructions.map((entry) => formatJsonForEditor(entry.metadata)));
       setSubmitState(
         `Submitted successfully. Backend: ${data.saved.backend}. Submission ID: ${data.saved.id}`
       );
@@ -357,7 +446,9 @@ export default function PortalApp() {
 
   const canSubmit =
     Boolean(selectedTask && taskDefinition.trim() && seedInstructions.length > 0) &&
-    qaTextByEntry.length === seedInstructions.length;
+    qaTextByEntry.length === seedInstructions.length &&
+    metadataTextByEntry.length === seedInstructions.length &&
+    !metadataEditByEntry.some(Boolean);
 
   return (
     <div className="page">
@@ -375,23 +466,43 @@ export default function PortalApp() {
             <h2 style={{ margin: 0 }}>Reference materials</h2>
             <div className="notice">
               <div>
-                <strong>Guide Sheet:</strong>{' '}
+                <strong>Guide Sheet:</strong>{" "}
                 <a
                   href="https://hackmd.io/@E6Umx55CRC2KGVCvqHvKHg/ByG1m9g9-e"
                   target="_blank"
                   rel="noreferrer"
+                  style={{
+                    display: "inline-block",
+                    padding: "6px 12px",
+                    backgroundColor: "#2563eb",
+                    color: "white",
+                    textDecoration: "none",
+                    borderRadius: "6px",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                  }}
                 >
-                  Open the guide sheet
+                  Open
                 </a>
               </div>
               <div style={{ marginTop: 8 }}>
-                <strong>Example process:</strong>{' '}
+                <strong>Example process:</strong>{" "}
                 <a
                   href="https://chatgpt.com/share/69bb5e82-d2f8-8001-af73-9a17a626095a"
                   target="_blank"
                   rel="noreferrer"
+                  style={{
+                    display: "inline-block",
+                    padding: "6px 12px",
+                    backgroundColor: "#2563eb",
+                    color: "white",
+                    textDecoration: "none",
+                    borderRadius: "6px",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                  }}
                 >
-                  Open the example process
+                  Open
                 </a>
               </div>
             </div>
@@ -479,34 +590,34 @@ export default function PortalApp() {
               The API samples from <span className="code-like">train.jsonl.gz</span>{' '}
               under the selected task path.
             </div>
+          </div>
 
-            <div className="notice">
-              <strong>Notes</strong>
-              <ol style={{ margin: '8px 0 0 20px', padding: 0 }}>
-                <li>
-                  Please refer to the guide sheet and example process before
-                  writing seed instructions.
-                </li>
-                <li>
-                  If a particular question type does not suit the task, it is fine
-                  to omit it. Use your judgment.
-                </li>
-                <li>
-                  Make sure the sampled metadata entries are sufficiently diverse
-                  in the labels (target_field).
-                </li>
-                <li>
-                  Make sure the generated seed instructions are sufficiently diverse
-                  in wording and form.
-                </li>
-                <li>
-                  Enter the seed instructions as line-separated JSON objects, each
-                  containing a <span className="code-like">question</span> and an{' '}
-                  <span className="code-like">answer</span> for the corresponding
-                  metadata entry.
-                </li>
-              </ol>
-            </div>
+          <div className="card stack">
+            <strong>Notes</strong>
+            <ol style={{ margin: '0 0 0 20px', padding: 0 }}>
+              <li>
+                Please refer to the guide sheet and example process before writing
+                seed instructions.
+              </li>
+              <li>
+                If a particular question type does not suit the task, it is fine to
+                omit it. Use your judgment.
+              </li>
+              <li>
+                Make sure the sampled seed instructions are sufficiently diverse in
+                wording and form.
+              </li>
+              <li>
+                Enter the seed instructions as line-separated JSON objects, each
+                containing a <span className="code-like">question</span> and an{' '}
+                <span className="code-like">answer</span> for the corresponding
+                metadata entry.
+              </li>
+              <li>
+                Also submit a task definition that formally defines the purpose or
+                goal of the task in one to three sentences.
+              </li>
+            </ol>
           </div>
 
           <div className="card stack">
@@ -514,7 +625,7 @@ export default function PortalApp() {
             <textarea
               value={taskDefinition}
               onChange={(e) => setTaskDefinition(e.target.value)}
-              placeholder="Write the task definition or annotation guideline to store with this submission."
+              placeholder="Formally define the purpose or goal of this task in 1–3 sentences."
             />
             <button onClick={handleSubmit} disabled={!canSubmit}>
               Submit
@@ -590,8 +701,15 @@ export default function PortalApp() {
                     <button
                       type="button"
                       className="secondary"
+                      onClick={() => toggleMetadataEdit(entryIndex)}
+                    >
+                      {metadataEditByEntry[entryIndex] ? 'Finish' : 'Edit'}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
                       onClick={() => handleResampleEntry(entryIndex)}
-                      disabled={resamplingIndex === entryIndex}
+                      disabled={resamplingIndex === entryIndex || metadataEditByEntry[entryIndex]}
                     >
                       {resamplingIndex === entryIndex
                         ? 'Resampling...'
@@ -600,7 +718,16 @@ export default function PortalApp() {
                   </div>
                 </div>
 
-                <pre>{JSON.stringify(entry.metadata, null, 2)}</pre>
+                {metadataEditByEntry[entryIndex] ? (
+                  <textarea
+                    className="jsonl-editor"
+                    value={metadataTextByEntry[entryIndex] ?? ''}
+                    onChange={(e) => updateMetadataText(entryIndex, e.target.value)}
+                    placeholder='{"id": "...", "text": "..."}'
+                  />
+                ) : (
+                  <pre>{metadataTextByEntry[entryIndex] ?? formatJsonForEditor(entry.metadata)}</pre>
+                )}
 
                 <div className="qa-block stack">
                   <div
