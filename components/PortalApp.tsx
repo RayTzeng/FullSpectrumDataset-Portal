@@ -12,17 +12,27 @@ type TaskApiRow = TaskRow & {
   browserUrl: string;
 };
 
-const [qaTextByEntry, setQaTextByEntry] = useState<
-  { stage1: string; stage2: string }[]
->([]);
+function emptyQA(): QAItem {
+  return { question: '', answer: '' };
+}
+
+function buildSeedEntry(metadata: SampledEntry): SeedInstructionItem {
+  return {
+    metadata,
+    stage1_QA: [emptyQA()],
+    stage2_QA: [emptyQA()],
+  };
+}
 
 function qaItemsToJsonl(items: QAItem[]): string {
   return items
     .filter((item) => item.question.trim() || item.answer.trim())
-    .map((item) => JSON.stringify({
-      question: item.question,
-      answer: item.answer,
-    }))
+    .map((item) =>
+      JSON.stringify({
+        question: item.question,
+        answer: item.answer,
+      })
+    )
     .join('\n');
 }
 
@@ -34,6 +44,7 @@ function parseQaJsonl(text: string): QAItem[] {
 
   return lines.map((line, idx) => {
     let parsed: unknown;
+
     try {
       parsed = JSON.parse(line);
     } catch {
@@ -48,7 +59,9 @@ function parseQaJsonl(text: string): QAItem[] {
       typeof (parsed as { question: unknown }).question !== 'string' ||
       typeof (parsed as { answer: unknown }).answer !== 'string'
     ) {
-      throw new Error(`Line ${idx + 1} must contain string fields "question" and "answer".`);
+      throw new Error(
+        `Line ${idx + 1} must contain string fields "question" and "answer".`
+      );
     }
 
     return {
@@ -58,41 +71,42 @@ function parseQaJsonl(text: string): QAItem[] {
   });
 }
 
-function emptyQA(): QAItem {
-  return { question: '', answer: '' };
-}
-
-function buildSeedEntry(metadata: SampledEntry): SeedInstructionItem {
-  return {
-    metadata,
-    stage1_QA: [emptyQA()],
-    stage2_QA: [emptyQA()],
-  };
-}
-
 export default function PortalApp() {
   const [tasks, setTasks] = useState<TaskApiRow[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
+
   const [datasetName, setDatasetName] = useState('');
   const [taskName, setTaskName] = useState('');
+
   const [readme, setReadme] = useState('');
-  const [readmeStatus, setReadmeStatus] = useState<string>('');
+  const [readmeStatus, setReadmeStatus] = useState('');
+
   const [k, setK] = useState(2);
   const [samples, setSamples] = useState<SampledEntry[]>([]);
-  const [samplingState, setSamplingState] = useState<string>('');
+  const [samplingState, setSamplingState] = useState('');
+
   const [taskDefinition, setTaskDefinition] = useState('');
   const [seedInstructions, setSeedInstructions] = useState<SeedInstructionItem[]>([]);
-  const [submitState, setSubmitState] = useState<string>('');
+  const [qaTextByEntry, setQaTextByEntry] = useState<
+    { stage1: string; stage2: string }[]
+  >([]);
+  const [submitState, setSubmitState] = useState('');
 
   useEffect(() => {
-    async function load() {
+    async function loadTasks() {
       setLoadingTasks(true);
-      const res = await fetch('/api/tasks');
-      const data = await res.json();
-      setTasks(data.tasks ?? []);
-      setLoadingTasks(false);
+      try {
+        const res = await fetch('/api/tasks');
+        const data = await res.json();
+        setTasks(data.tasks ?? []);
+      } catch {
+        setTasks([]);
+      } finally {
+        setLoadingTasks(false);
+      }
     }
-    load();
+
+    loadTasks();
   }, []);
 
   const datasetOptions = useMemo(() => {
@@ -104,7 +118,11 @@ export default function PortalApp() {
   }, [tasks, datasetName]);
 
   const selectedTask = useMemo(() => {
-    return tasks.find((task) => task.datasetName === datasetName && task.taskName === taskName) ?? null;
+    return (
+      tasks.find(
+        (task) => task.datasetName === datasetName && task.taskName === taskName
+      ) ?? null
+    );
   }, [tasks, datasetName, taskName]);
 
   useEffect(() => {
@@ -114,7 +132,7 @@ export default function PortalApp() {
   }, [datasetName, datasetOptions]);
 
   useEffect(() => {
-    if (taskOptions.length > 0 && !taskOptions.some((task) => task.taskName === taskName)) {
+    if (taskOptions.length > 0 && !taskOptions.some((t) => t.taskName === taskName)) {
       setTaskName(taskOptions[0].taskName);
     }
   }, [taskOptions, taskName]);
@@ -122,8 +140,10 @@ export default function PortalApp() {
   useEffect(() => {
     async function loadReadme() {
       if (!selectedTask) return;
+
       setReadmeStatus('Loading README...');
       setReadme('');
+
       try {
         const res = await fetch(selectedTask.readmeUrl, { cache: 'no-store' });
         if (!res.ok) {
@@ -133,86 +153,167 @@ export default function PortalApp() {
         setReadme(text);
         setReadmeStatus('');
       } catch (error) {
-        setReadmeStatus(error instanceof Error ? error.message : 'Failed to load README.');
+        setReadmeStatus(
+          error instanceof Error ? error.message : 'Failed to load README.'
+        );
       }
     }
+
     loadReadme();
+
     setSamples([]);
     setSeedInstructions([]);
+    setQaTextByEntry([]);
     setTaskDefinition('');
+    setSamplingState('');
     setSubmitState('');
   }, [selectedTask]);
 
+  function updateQaText(
+    entryIndex: number,
+    stage: 'stage1' | 'stage2',
+    value: string
+  ) {
+    setQaTextByEntry((current) => {
+      const next = structuredClone(current);
+      if (!next[entryIndex]) {
+        next[entryIndex] = { stage1: '', stage2: '' };
+      }
+      next[entryIndex][stage] = value;
+      return next;
+    });
+
+    try {
+      const parsed = parseQaJsonl(value);
+      setSeedInstructions((current) => {
+        const next = structuredClone(current);
+        if (!next[entryIndex]) return current;
+
+        if (stage === 'stage1') {
+          next[entryIndex].stage1_QA = parsed;
+        } else {
+          next[entryIndex].stage2_QA = parsed;
+        }
+        return next;
+      });
+      setSubmitState('');
+    } catch {
+      // Do not overwrite the user's text; only defer validation to submit.
+    }
+  }
+
   async function handleSample() {
     if (!selectedTask) return;
+
     setSamplingState('Sampling examples...');
     setSubmitState('');
+
     try {
       const params = new URLSearchParams({
         datasetName: selectedTask.datasetName,
         taskName: selectedTask.taskName,
         k: String(k),
       });
+
       const res = await fetch(`/api/sample?${params.toString()}`);
       const data = await res.json();
+
       if (!res.ok) {
         throw new Error(data.error || 'Sampling failed.');
       }
-      setSamples(data.samples ?? []);
-      const built = (data.samples ?? []).map(buildSeedEntry);
+
+      const sampled: SampledEntry[] = data.samples ?? [];
+      const built = sampled.map(buildSeedEntry);
+
+      setSamples(sampled);
       setSeedInstructions(built);
-      setQaTextByEntry([]);
-      setSamplingState(`Loaded ${data.samples?.length ?? 0} sample(s).`);
+      setQaTextByEntry(
+        built.map((entry) => ({
+          stage1: qaItemsToJsonl(entry.stage1_QA),
+          stage2: qaItemsToJsonl(entry.stage2_QA),
+        }))
+      );
+      setSamplingState(`Loaded ${sampled.length} sample(s).`);
     } catch (error) {
-      setSamplingState(error instanceof Error ? error.message : 'Sampling failed.');
+      setSamplingState(
+        error instanceof Error ? error.message : 'Sampling failed.'
+      );
     }
   }
 
   async function handleSubmit() {
     if (!selectedTask) return;
+
     setSubmitState('Submitting...');
+
     try {
+      const parsedSeedInstructions = seedInstructions.map((entry, entryIndex) => {
+        const raw = qaTextByEntry[entryIndex] ?? { stage1: '', stage2: '' };
+
+        const stage1_QA = parseQaJsonl(raw.stage1);
+        const stage2_QA = parseQaJsonl(raw.stage2);
+
+        if (stage1_QA.length === 0) {
+          throw new Error(`Sample #${entryIndex + 1}: stage-1 QA cannot be empty.`);
+        }
+
+        if (stage2_QA.length === 0) {
+          throw new Error(`Sample #${entryIndex + 1}: stage-2 QA cannot be empty.`);
+        }
+
+        return {
+          metadata: entry.metadata,
+          stage1_QA,
+          stage2_QA,
+        };
+      });
+
+      if (!taskDefinition.trim()) {
+        throw new Error('Task definition cannot be empty.');
+      }
+
       const payload = {
         datasetName: selectedTask.datasetName,
         taskName: selectedTask.taskName,
         taskDefinition,
-        seedInstructions,
+        seedInstructions: parsedSeedInstructions,
       };
-      try {
-        qaTextByEntry.forEach((entry) => {
-          parseQaJsonl(entry.stage1);
-          parseQaJsonl(entry.stage2);
-        });
-      } catch (error) {
-        setSubmitState(error instanceof Error ? error.message : 'Invalid QA JSONL.');
-        return;
-      }
+
       const res = await fetch('/api/submissions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
       const data = await res.json();
+
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'Submission failed.');
       }
-      setSubmitState(`Submitted successfully. Backend: ${data.saved.backend}. Submission ID: ${data.saved.id}`);
+
+      setSeedInstructions(parsedSeedInstructions);
+      setSubmitState(
+        `Submitted successfully. Backend: ${data.saved.backend}. Submission ID: ${data.saved.id}`
+      );
     } catch (error) {
-      setSubmitState(error instanceof Error ? error.message : 'Submission failed.');
+      setSubmitState(
+        error instanceof Error ? error.message : 'Submission failed.'
+      );
     }
   }
 
   const canSubmit =
     Boolean(selectedTask && taskDefinition.trim() && seedInstructions.length > 0) &&
-    seedInstructions.every(
-      (entry) => entry.stage1_QA.length > 0 && entry.stage2_QA.length > 0
-    );
+    qaTextByEntry.length === seedInstructions.length;
 
   return (
     <div className="page">
       <div className="header">
         <h1>FullSpectrumDataset Portal</h1>
-        <p>Browse task documentation, sample metadata entries from the train split, and submit seed instructions.</p>
+        <p>
+          Browse task documentation, sample metadata entries from the train split,
+          and submit seed instructions.
+        </p>
       </div>
 
       <div className="grid">
@@ -220,30 +321,55 @@ export default function PortalApp() {
           <div className="card stack">
             <div>
               <label className="label">Dataset</label>
-              <select value={datasetName} onChange={(e) => setDatasetName(e.target.value)} disabled={loadingTasks}>
+              <select
+                value={datasetName}
+                onChange={(e) => setDatasetName(e.target.value)}
+                disabled={loadingTasks}
+              >
                 {datasetOptions.map((name) => (
-                  <option key={name} value={name}>{name}</option>
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div>
               <label className="label">Task</label>
-              <select value={taskName} onChange={(e) => setTaskName(e.target.value)} disabled={loadingTasks || !datasetName}>
+              <select
+                value={taskName}
+                onChange={(e) => setTaskName(e.target.value)}
+                disabled={loadingTasks || !datasetName}
+              >
                 {taskOptions.map((task) => (
-                  <option key={`${task.datasetName}-${task.taskName}`} value={task.taskName}>{task.taskName}</option>
+                  <option
+                    key={`${task.datasetName}-${task.taskName}`}
+                    value={task.taskName}
+                  >
+                    {task.taskName}
+                  </option>
                 ))}
               </select>
             </div>
 
             {selectedTask && (
               <div className="notice">
-                <div><strong>Target field:</strong> <span className="code-like">{selectedTask.targetField}</span></div>
-                <div className="small" style={{ marginTop: 8 }}>
-                  Task path: <span className="code-like">{selectedTask.taskPath}</span>
+                <div>
+                  <strong>Target field:</strong>{' '}
+                  <span className="code-like">{selectedTask.targetField}</span>
                 </div>
                 <div className="small" style={{ marginTop: 8 }}>
-                  <a href={selectedTask.browserUrl} target="_blank" rel="noreferrer">Open task folder on GitHub</a>
+                  Task path:{' '}
+                  <span className="code-like">{selectedTask.taskPath}</span>
+                </div>
+                <div className="small" style={{ marginTop: 8 }}>
+                  <a
+                    href={selectedTask.browserUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open task folder on GitHub
+                  </a>
                 </div>
               </div>
             )}
@@ -253,14 +379,25 @@ export default function PortalApp() {
             <div className="row">
               <div style={{ flex: 1 }}>
                 <label className="label">K sampled entries</label>
-                <input type="number" min={1} max={20} value={k} onChange={(e) => setK(Number(e.target.value))} />
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={k}
+                  onChange={(e) => setK(Number(e.target.value))}
+                />
               </div>
               <div style={{ alignSelf: 'end' }}>
-                <button onClick={handleSample} disabled={!selectedTask}>Sample train split</button>
+                <button onClick={handleSample} disabled={!selectedTask}>
+                  Sample train split
+                </button>
               </div>
             </div>
             {samplingState && <div className="notice">{samplingState}</div>}
-            <div className="small">The API samples from <span className="code-like">train.jsonl.gz</span> under the selected task path.</div>
+            <div className="small">
+              The API samples from <span className="code-like">train.jsonl.gz</span>{' '}
+              under the selected task path.
+            </div>
           </div>
 
           <div className="card stack">
@@ -270,9 +407,19 @@ export default function PortalApp() {
               onChange={(e) => setTaskDefinition(e.target.value)}
               placeholder="Write the task definition or annotation guideline to store with this submission."
             />
-            <button onClick={handleSubmit} disabled={!canSubmit}>Submit</button>
+            <button onClick={handleSubmit} disabled={!canSubmit}>
+              Submit
+            </button>
             {submitState && (
-              <div className={`notice ${submitState.startsWith('Submitted') ? 'success' : submitState === 'Submitting...' ? '' : 'error'}`}>
+              <div
+                className={`notice ${
+                  submitState.startsWith('Submitted')
+                    ? 'success'
+                    : submitState === 'Submitting...'
+                    ? ''
+                    : 'error'
+                }`}
+              >
                 {submitState}
               </div>
             )}
@@ -281,18 +428,24 @@ export default function PortalApp() {
 
         <div className="stack">
           <div className="card">
-            <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+            <div
+              className="row wrap"
+              style={{ justifyContent: 'space-between' }}
+            >
               <div>
                 <h2 style={{ margin: '0 0 8px 0' }}>README</h2>
                 {selectedTask && (
                   <div className="row wrap">
                     <span className="badge">{selectedTask.datasetName}</span>
                     <span className="badge">{selectedTask.taskName}</span>
-                    <span className="badge">target: {selectedTask.targetField}</span>
+                    <span className="badge">
+                      target: {selectedTask.targetField}
+                    </span>
                   </div>
                 )}
               </div>
             </div>
+
             {readmeStatus ? (
               <div className="notice">{readmeStatus}</div>
             ) : (
@@ -309,41 +462,60 @@ export default function PortalApp() {
 
           <div className="card stack">
             <h2 style={{ margin: 0 }}>Seed instruction editor</h2>
-            {!samples.length && <div className="notice">Sample entries first to populate this section.</div>}
+
+            {!samples.length && (
+              <div className="notice">
+                Sample entries first to populate this section.
+              </div>
+            )}
 
             {seedInstructions.map((entry, entryIndex) => (
               <div className="entry-card stack" key={entryIndex}>
-                <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+                <div
+                  className="row wrap"
+                  style={{ justifyContent: 'space-between' }}
+                >
                   <strong>Sample #{entryIndex + 1}</strong>
                   <span className="badge">metadata entry</span>
                 </div>
+
                 <pre>{JSON.stringify(entry.metadata, null, 2)}</pre>
 
                 <div className="qa-block stack">
-                  <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+                  <div
+                    className="row wrap"
+                    style={{ justifyContent: 'space-between' }}
+                  >
                     <strong>Stage-1 questions</strong>
                     <span className="small">One JSON object per line</span>
                   </div>
                   <textarea
                     className="jsonl-editor"
                     value={qaTextByEntry[entryIndex]?.stage1 ?? ''}
-                    onChange={(e) => updateQaText(entryIndex, 'stage1', e.target.value)}
+                    onChange={(e) =>
+                      updateQaText(entryIndex, 'stage1', e.target.value)
+                    }
                     placeholder={`{"question": "Is the speaker in their twenties?", "answer": "Yes."}
-                {"question": "Identify the speaker's age group.", "answer": "twenties"}`}
+{"question": "Identify the speaker's age group.", "answer": "twenties"}`}
                   />
                 </div>
 
                 <div className="qa-block stack">
-                  <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+                  <div
+                    className="row wrap"
+                    style={{ justifyContent: 'space-between' }}
+                  >
                     <strong>Stage-2 questions</strong>
                     <span className="small">One JSON object per line</span>
                   </div>
                   <textarea
                     className="jsonl-editor"
                     value={qaTextByEntry[entryIndex]?.stage2 ?? ''}
-                    onChange={(e) => updateQaText(entryIndex, 'stage2', e.target.value)}
+                    onChange={(e) =>
+                      updateQaText(entryIndex, 'stage2', e.target.value)
+                    }
                     placeholder={`{"question": "Would young adult be a fair description?", "answer": "Yes."}
-                {"question": "Translate this age estimate into a rough numeric interval.", "answer": "20-29"}`}
+{"question": "Translate this age estimate into a rough numeric interval.", "answer": "20-29"}`}
                   />
                 </div>
               </div>
