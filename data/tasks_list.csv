@@ -1,0 +1,16 @@
+Dataset Name,Task Name,Task Path,Target field
+LibriSpeech,Automatic Speech Recognition (ASR),FullSpectrumDataset/metadata/LibriSpeech/ASR,text
+LibriSpeech,Punctuated Automatic Speech Recognition,FullSpectrumDataset/metadata/LibriSpeech/PunctuatedASR,text
+FLEURS,Multilingual Speech Recognition,FullSpectrumDataset/metadata/FLEURS,text
+FLEURS,Language Identification,FullSpectrumDataset/metadata/FLEURS,lang
+FLEURS,Language Group Classification,FullSpectrumDataset/metadata/FLEURS,lang_group
+FLEURS,Speaker Gender Classification,FullSpectrumDataset/metadata/FLEURS,gender
+GLOBE,Accent-Robust ASR,FullSpectrumDataset/metadata/GLOBE,text
+GLOBE,English Accent Classification,FullSpectrumDataset/metadata/GLOBE,accent
+GLOBE,Speaker Age Estimation,FullSpectrumDataset/metadata/GLOBE,age
+GLOBE,Speaker Gender Classification,FullSpectrumDataset/metadata/GLOBE,gender
+SpeechCommands,Keyword Spotting,FullSpectrumDataset/metadata/SpeechCommands,label
+VggSound,Audio Event Classification,FullSpectrumDataset/metadata/VggSound,event_label
+MELD,Speech Emotion Recognition,FullSpectrumDataset/metadata/MELD/EmotionRecognition_SentimentClassification,emotion
+MELD,Speech Sentiment Classification,FullSpectrumDataset/metadata/MELD/EmotionRecognition_SentimentClassification,sentiment
+AudioSet,Multi-Label Audio Event Classification,FullSpectrumDataset/metadata/AudioSet,labels

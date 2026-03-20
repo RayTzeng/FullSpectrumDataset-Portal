@@ -1,0 +1,335 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import type { QAItem, SampledEntry, SeedInstructionItem, TaskRow } from '@/lib/types';
+
+type TaskApiRow = TaskRow & {
+  readmeUrl: string;
+  trainUrl: string;
+  browserUrl: string;
+};
+
+function emptyQA(): QAItem {
+  return { question: '', answer: '' };
+}
+
+function buildSeedEntry(metadata: SampledEntry): SeedInstructionItem {
+  return {
+    metadata,
+    stage1_QA: [emptyQA()],
+    stage2_QA: [emptyQA()],
+  };
+}
+
+export default function PortalApp() {
+  const [tasks, setTasks] = useState<TaskApiRow[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+  const [datasetName, setDatasetName] = useState('');
+  const [taskName, setTaskName] = useState('');
+  const [readme, setReadme] = useState('');
+  const [readmeStatus, setReadmeStatus] = useState<string>('');
+  const [k, setK] = useState(2);
+  const [samples, setSamples] = useState<SampledEntry[]>([]);
+  const [samplingState, setSamplingState] = useState<string>('');
+  const [taskDefinition, setTaskDefinition] = useState('');
+  const [seedInstructions, setSeedInstructions] = useState<SeedInstructionItem[]>([]);
+  const [submitState, setSubmitState] = useState<string>('');
+
+  useEffect(() => {
+    async function load() {
+      setLoadingTasks(true);
+      const res = await fetch('/api/tasks');
+      const data = await res.json();
+      setTasks(data.tasks ?? []);
+      setLoadingTasks(false);
+    }
+    load();
+  }, []);
+
+  const datasetOptions = useMemo(() => {
+    return [...new Set(tasks.map((task) => task.datasetName))];
+  }, [tasks]);
+
+  const taskOptions = useMemo(() => {
+    return tasks.filter((task) => task.datasetName === datasetName);
+  }, [tasks, datasetName]);
+
+  const selectedTask = useMemo(() => {
+    return tasks.find((task) => task.datasetName === datasetName && task.taskName === taskName) ?? null;
+  }, [tasks, datasetName, taskName]);
+
+  useEffect(() => {
+    if (!datasetName && datasetOptions.length > 0) {
+      setDatasetName(datasetOptions[0]);
+    }
+  }, [datasetName, datasetOptions]);
+
+  useEffect(() => {
+    if (taskOptions.length > 0 && !taskOptions.some((task) => task.taskName === taskName)) {
+      setTaskName(taskOptions[0].taskName);
+    }
+  }, [taskOptions, taskName]);
+
+  useEffect(() => {
+    async function loadReadme() {
+      if (!selectedTask) return;
+      setReadmeStatus('Loading README...');
+      setReadme('');
+      try {
+        const res = await fetch(selectedTask.readmeUrl, { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error(`README fetch failed: ${res.status}`);
+        }
+        const text = await res.text();
+        setReadme(text);
+        setReadmeStatus('');
+      } catch (error) {
+        setReadmeStatus(error instanceof Error ? error.message : 'Failed to load README.');
+      }
+    }
+    loadReadme();
+    setSamples([]);
+    setSeedInstructions([]);
+    setTaskDefinition('');
+    setSubmitState('');
+  }, [selectedTask]);
+
+  async function handleSample() {
+    if (!selectedTask) return;
+    setSamplingState('Sampling examples...');
+    setSubmitState('');
+    try {
+      const params = new URLSearchParams({
+        datasetName: selectedTask.datasetName,
+        taskName: selectedTask.taskName,
+        k: String(k),
+      });
+      const res = await fetch(`/api/sample?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Sampling failed.');
+      }
+      setSamples(data.samples ?? []);
+      setSeedInstructions((data.samples ?? []).map(buildSeedEntry));
+      setSamplingState(`Loaded ${data.samples?.length ?? 0} sample(s).`);
+    } catch (error) {
+      setSamplingState(error instanceof Error ? error.message : 'Sampling failed.');
+    }
+  }
+
+  function updateQA(entryIndex: number, stage: 'stage1_QA' | 'stage2_QA', qaIndex: number, field: keyof QAItem, value: string) {
+    setSeedInstructions((current) => {
+      const next = structuredClone(current);
+      next[entryIndex][stage][qaIndex][field] = value;
+      return next;
+    });
+  }
+
+  function addQA(entryIndex: number, stage: 'stage1_QA' | 'stage2_QA') {
+    setSeedInstructions((current) => {
+      const next = structuredClone(current);
+      next[entryIndex][stage].push(emptyQA());
+      return next;
+    });
+  }
+
+  function removeQA(entryIndex: number, stage: 'stage1_QA' | 'stage2_QA', qaIndex: number) {
+    setSeedInstructions((current) => {
+      const next = structuredClone(current);
+      if (next[entryIndex][stage].length > 1) {
+        next[entryIndex][stage].splice(qaIndex, 1);
+      }
+      return next;
+    });
+  }
+
+  async function handleSubmit() {
+    if (!selectedTask) return;
+    setSubmitState('Submitting...');
+    try {
+      const payload = {
+        datasetName: selectedTask.datasetName,
+        taskName: selectedTask.taskName,
+        taskDefinition,
+        seedInstructions,
+      };
+      const res = await fetch('/api/submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Submission failed.');
+      }
+      setSubmitState(`Submitted successfully. Backend: ${data.saved.backend}. Submission ID: ${data.saved.id}`);
+    } catch (error) {
+      setSubmitState(error instanceof Error ? error.message : 'Submission failed.');
+    }
+  }
+
+  const canSubmit = Boolean(selectedTask && taskDefinition.trim() && seedInstructions.length > 0);
+
+  return (
+    <div className="page">
+      <div className="header">
+        <h1>FullSpectrumDataset Portal</h1>
+        <p>Browse task documentation, sample metadata entries from the train split, and submit seed instructions.</p>
+      </div>
+
+      <div className="grid">
+        <div className="stack">
+          <div className="card stack">
+            <div>
+              <label className="label">Dataset</label>
+              <select value={datasetName} onChange={(e) => setDatasetName(e.target.value)} disabled={loadingTasks}>
+                {datasetOptions.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="label">Task</label>
+              <select value={taskName} onChange={(e) => setTaskName(e.target.value)} disabled={loadingTasks || !datasetName}>
+                {taskOptions.map((task) => (
+                  <option key={`${task.datasetName}-${task.taskName}`} value={task.taskName}>{task.taskName}</option>
+                ))}
+              </select>
+            </div>
+
+            {selectedTask && (
+              <div className="notice">
+                <div><strong>Target field:</strong> <span className="code-like">{selectedTask.targetField}</span></div>
+                <div className="small" style={{ marginTop: 8 }}>
+                  Task path: <span className="code-like">{selectedTask.taskPath}</span>
+                </div>
+                <div className="small" style={{ marginTop: 8 }}>
+                  <a href={selectedTask.browserUrl} target="_blank" rel="noreferrer">Open task folder on GitHub</a>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="card stack">
+            <div className="row">
+              <div style={{ flex: 1 }}>
+                <label className="label">K sampled entries</label>
+                <input type="number" min={1} max={20} value={k} onChange={(e) => setK(Number(e.target.value))} />
+              </div>
+              <div style={{ alignSelf: 'end' }}>
+                <button onClick={handleSample} disabled={!selectedTask}>Sample train split</button>
+              </div>
+            </div>
+            {samplingState && <div className="notice">{samplingState}</div>}
+            <div className="small">The API samples from <span className="code-like">train.jsonl.gz</span> under the selected task path.</div>
+          </div>
+
+          <div className="card stack">
+            <label className="label">Task definition</label>
+            <textarea
+              value={taskDefinition}
+              onChange={(e) => setTaskDefinition(e.target.value)}
+              placeholder="Write the task definition or annotation guideline to store with this submission."
+            />
+            <button onClick={handleSubmit} disabled={!canSubmit}>Submit</button>
+            {submitState && (
+              <div className={`notice ${submitState.startsWith('Submitted') ? 'success' : submitState === 'Submitting...' ? '' : 'error'}`}>
+                {submitState}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="stack">
+          <div className="card">
+            <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+              <div>
+                <h2 style={{ margin: '0 0 8px 0' }}>README</h2>
+                {selectedTask && (
+                  <div className="row wrap">
+                    <span className="badge">{selectedTask.datasetName}</span>
+                    <span className="badge">{selectedTask.taskName}</span>
+                    <span className="badge">target: {selectedTask.targetField}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            {readmeStatus ? (
+              <div className="notice">{readmeStatus}</div>
+            ) : (
+              <div className="markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{readme}</ReactMarkdown>
+              </div>
+            )}
+          </div>
+
+          <div className="card stack">
+            <h2 style={{ margin: 0 }}>Seed instruction editor</h2>
+            {!samples.length && <div className="notice">Sample entries first to populate this section.</div>}
+
+            {seedInstructions.map((entry, entryIndex) => (
+              <div className="entry-card stack" key={entryIndex}>
+                <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+                  <strong>Sample #{entryIndex + 1}</strong>
+                  <span className="badge">metadata entry</span>
+                </div>
+                <pre>{JSON.stringify(entry.metadata, null, 2)}</pre>
+
+                <div className="qa-block stack">
+                  <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+                    <strong>Stage-1 questions</strong>
+                    <button type="button" className="secondary" onClick={() => addQA(entryIndex, 'stage1_QA')}>Add stage-1 QA</button>
+                  </div>
+                  {entry.stage1_QA.map((qa, qaIndex) => (
+                    <div className="qa-item stack" key={qaIndex}>
+                      <input
+                        value={qa.question}
+                        placeholder="Stage-1 question"
+                        onChange={(e) => updateQA(entryIndex, 'stage1_QA', qaIndex, 'question', e.target.value)}
+                      />
+                      <textarea
+                        value={qa.answer}
+                        placeholder="Stage-1 answer"
+                        onChange={(e) => updateQA(entryIndex, 'stage1_QA', qaIndex, 'answer', e.target.value)}
+                      />
+                      <div>
+                        <button type="button" className="secondary" onClick={() => removeQA(entryIndex, 'stage1_QA', qaIndex)}>Remove</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="qa-block stack">
+                  <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+                    <strong>Stage-2 questions</strong>
+                    <button type="button" className="secondary" onClick={() => addQA(entryIndex, 'stage2_QA')}>Add stage-2 QA</button>
+                  </div>
+                  {entry.stage2_QA.map((qa, qaIndex) => (
+                    <div className="qa-item stack" key={qaIndex}>
+                      <input
+                        value={qa.question}
+                        placeholder="Stage-2 question"
+                        onChange={(e) => updateQA(entryIndex, 'stage2_QA', qaIndex, 'question', e.target.value)}
+                      />
+                      <textarea
+                        value={qa.answer}
+                        placeholder="Stage-2 answer"
+                        onChange={(e) => updateQA(entryIndex, 'stage2_QA', qaIndex, 'answer', e.target.value)}
+                      />
+                      <div>
+                        <button type="button" className="secondary" onClick={() => removeQA(entryIndex, 'stage2_QA', qaIndex)}>Remove</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
