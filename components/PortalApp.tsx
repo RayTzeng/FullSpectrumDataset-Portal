@@ -474,7 +474,7 @@ export default function PortalApp() {
                   style={{
                     display: "inline-block",
                     padding: "6px 12px",
-                    backgroundColor: "#ebebebff",
+                    backgroundColor: "#515151ff",
                     color: "white",
                     textDecoration: "none",
                     borderRadius: "6px",
@@ -494,7 +494,7 @@ export default function PortalApp() {
                   style={{
                     display: "inline-block",
                     padding: "6px 12px",
-                    backgroundColor: "#ebebebff",
+                    backgroundColor: "#515151ff",
                     color: "white",
                     textDecoration: "none",
                     borderRadius: "6px",
