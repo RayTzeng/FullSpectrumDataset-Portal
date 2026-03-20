@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import type { QAItem, SampledEntry, SeedInstructionItem, TaskRow } from '@/lib/types';
 
 type TaskApiRow = TaskRow & {
@@ -10,6 +11,52 @@ type TaskApiRow = TaskRow & {
   trainUrl: string;
   browserUrl: string;
 };
+
+const [qaTextByEntry, setQaTextByEntry] = useState<
+  { stage1: string; stage2: string }[]
+>([]);
+
+function qaItemsToJsonl(items: QAItem[]): string {
+  return items
+    .filter((item) => item.question.trim() || item.answer.trim())
+    .map((item) => JSON.stringify({
+      question: item.question,
+      answer: item.answer,
+    }))
+    .join('\n');
+}
+
+function parseQaJsonl(text: string): QAItem[] {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return lines.map((line, idx) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw new Error(`Line ${idx + 1} is not valid JSON.`);
+    }
+
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      !('question' in parsed) ||
+      !('answer' in parsed) ||
+      typeof (parsed as { question: unknown }).question !== 'string' ||
+      typeof (parsed as { answer: unknown }).answer !== 'string'
+    ) {
+      throw new Error(`Line ${idx + 1} must contain string fields "question" and "answer".`);
+    }
+
+    return {
+      question: (parsed as { question: string }).question,
+      answer: (parsed as { answer: string }).answer,
+    };
+  });
+}
 
 function emptyQA(): QAItem {
   return { question: '', answer: '' };
@@ -112,37 +159,13 @@ export default function PortalApp() {
         throw new Error(data.error || 'Sampling failed.');
       }
       setSamples(data.samples ?? []);
-      setSeedInstructions((data.samples ?? []).map(buildSeedEntry));
+      const built = (data.samples ?? []).map(buildSeedEntry);
+      setSeedInstructions(built);
+      setQaTextByEntry([]);
       setSamplingState(`Loaded ${data.samples?.length ?? 0} sample(s).`);
     } catch (error) {
       setSamplingState(error instanceof Error ? error.message : 'Sampling failed.');
     }
-  }
-
-  function updateQA(entryIndex: number, stage: 'stage1_QA' | 'stage2_QA', qaIndex: number, field: keyof QAItem, value: string) {
-    setSeedInstructions((current) => {
-      const next = structuredClone(current);
-      next[entryIndex][stage][qaIndex][field] = value;
-      return next;
-    });
-  }
-
-  function addQA(entryIndex: number, stage: 'stage1_QA' | 'stage2_QA') {
-    setSeedInstructions((current) => {
-      const next = structuredClone(current);
-      next[entryIndex][stage].push(emptyQA());
-      return next;
-    });
-  }
-
-  function removeQA(entryIndex: number, stage: 'stage1_QA' | 'stage2_QA', qaIndex: number) {
-    setSeedInstructions((current) => {
-      const next = structuredClone(current);
-      if (next[entryIndex][stage].length > 1) {
-        next[entryIndex][stage].splice(qaIndex, 1);
-      }
-      return next;
-    });
   }
 
   async function handleSubmit() {
@@ -155,6 +178,15 @@ export default function PortalApp() {
         taskDefinition,
         seedInstructions,
       };
+      try {
+        qaTextByEntry.forEach((entry) => {
+          parseQaJsonl(entry.stage1);
+          parseQaJsonl(entry.stage2);
+        });
+      } catch (error) {
+        setSubmitState(error instanceof Error ? error.message : 'Invalid QA JSONL.');
+        return;
+      }
       const res = await fetch('/api/submissions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -170,7 +202,11 @@ export default function PortalApp() {
     }
   }
 
-  const canSubmit = Boolean(selectedTask && taskDefinition.trim() && seedInstructions.length > 0);
+  const canSubmit =
+    Boolean(selectedTask && taskDefinition.trim() && seedInstructions.length > 0) &&
+    seedInstructions.every(
+      (entry) => entry.stage1_QA.length > 0 && entry.stage2_QA.length > 0
+    );
 
   return (
     <div className="page">
@@ -261,7 +297,12 @@ export default function PortalApp() {
               <div className="notice">{readmeStatus}</div>
             ) : (
               <div className="markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{readme}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
+                >
+                  {readme}
+                </ReactMarkdown>
               </div>
             )}
           </div>
@@ -281,49 +322,29 @@ export default function PortalApp() {
                 <div className="qa-block stack">
                   <div className="row wrap" style={{ justifyContent: 'space-between' }}>
                     <strong>Stage-1 questions</strong>
-                    <button type="button" className="secondary" onClick={() => addQA(entryIndex, 'stage1_QA')}>Add stage-1 QA</button>
+                    <span className="small">One JSON object per line</span>
                   </div>
-                  {entry.stage1_QA.map((qa, qaIndex) => (
-                    <div className="qa-item stack" key={qaIndex}>
-                      <input
-                        value={qa.question}
-                        placeholder="Stage-1 question"
-                        onChange={(e) => updateQA(entryIndex, 'stage1_QA', qaIndex, 'question', e.target.value)}
-                      />
-                      <textarea
-                        value={qa.answer}
-                        placeholder="Stage-1 answer"
-                        onChange={(e) => updateQA(entryIndex, 'stage1_QA', qaIndex, 'answer', e.target.value)}
-                      />
-                      <div>
-                        <button type="button" className="secondary" onClick={() => removeQA(entryIndex, 'stage1_QA', qaIndex)}>Remove</button>
-                      </div>
-                    </div>
-                  ))}
+                  <textarea
+                    className="jsonl-editor"
+                    value={qaTextByEntry[entryIndex]?.stage1 ?? ''}
+                    onChange={(e) => updateQaText(entryIndex, 'stage1', e.target.value)}
+                    placeholder={`{"question": "Is the speaker in their twenties?", "answer": "Yes."}
+                {"question": "Identify the speaker's age group.", "answer": "twenties"}`}
+                  />
                 </div>
 
                 <div className="qa-block stack">
                   <div className="row wrap" style={{ justifyContent: 'space-between' }}>
                     <strong>Stage-2 questions</strong>
-                    <button type="button" className="secondary" onClick={() => addQA(entryIndex, 'stage2_QA')}>Add stage-2 QA</button>
+                    <span className="small">One JSON object per line</span>
                   </div>
-                  {entry.stage2_QA.map((qa, qaIndex) => (
-                    <div className="qa-item stack" key={qaIndex}>
-                      <input
-                        value={qa.question}
-                        placeholder="Stage-2 question"
-                        onChange={(e) => updateQA(entryIndex, 'stage2_QA', qaIndex, 'question', e.target.value)}
-                      />
-                      <textarea
-                        value={qa.answer}
-                        placeholder="Stage-2 answer"
-                        onChange={(e) => updateQA(entryIndex, 'stage2_QA', qaIndex, 'answer', e.target.value)}
-                      />
-                      <div>
-                        <button type="button" className="secondary" onClick={() => removeQA(entryIndex, 'stage2_QA', qaIndex)}>Remove</button>
-                      </div>
-                    </div>
-                  ))}
+                  <textarea
+                    className="jsonl-editor"
+                    value={qaTextByEntry[entryIndex]?.stage2 ?? ''}
+                    onChange={(e) => updateQaText(entryIndex, 'stage2', e.target.value)}
+                    placeholder={`{"question": "Would young adult be a fair description?", "answer": "Yes."}
+                {"question": "Translate this age estimate into a rough numeric interval.", "answer": "20-29"}`}
+                  />
                 </div>
               </div>
             ))}

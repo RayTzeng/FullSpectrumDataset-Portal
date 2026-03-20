@@ -131,8 +131,116 @@ pre {
   border-color: #a7f3d0;
   color: #065f46;
 }
-.markdown h1, .markdown h2, .markdown h3 { margin-top: 1.2em; }
-.markdown p, .markdown li { line-height: 1.6; }
-@media (max-width: 1000px) {
-  .grid { grid-template-columns: 1fr; }
+.markdown {
+  line-height: 1.7;
+  font-size: 15px;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin-top: 1.4em;
+  margin-bottom: 0.6em;
+  line-height: 1.25;
+}
+
+.markdown h1 {
+  font-size: 2rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+
+.markdown h2 {
+  font-size: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25em;
+}
+
+.markdown h3 {
+  font-size: 1.2rem;
+}
+
+.markdown p,
+.markdown li {
+  line-height: 1.7;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 1.5rem;
+}
+
+.markdown blockquote {
+  margin: 1em 0;
+  padding: 0.75em 1em;
+  border-left: 4px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.markdown th {
+  background: #f8fafc;
+}
+
+.markdown code {
+  background: #f8fafc;
+  padding: 0.15em 0.35em;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.95em;
+}
+
+.markdown pre {
+  overflow-x: auto;
+  padding: 14px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border: none;
+}
+
+.markdown pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.jsonl-editor {
+  min-height: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre;
 }
