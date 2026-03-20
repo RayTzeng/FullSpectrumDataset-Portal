@@ -11,10 +11,10 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.52.0",
     "marked": "^15.0.12",
-    "next": "15.3.0",
+    "next": "PATCHED_15_X_VERSION",
     "papaparse": "^5.5.3",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   },
