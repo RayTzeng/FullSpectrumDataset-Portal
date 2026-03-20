@@ -617,6 +617,9 @@ export default function PortalApp() {
                 Also submit a task definition that formally defines the purpose or
                 goal of the task in one to three sentences.
               </li>
+              <li>
+                It is recommended to copy the sampled metadata entries into your local editor, since the page may occasionally need to be rebuilt. If that happens, you can simply paste the metadata back into the portal without resampling and continue editing your seed instructions from where you left off.
+              </li>
             </ol>
           </div>
 
