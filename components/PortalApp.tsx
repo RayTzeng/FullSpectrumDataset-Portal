@@ -100,7 +100,7 @@ export default function PortalApp() {
   const [readme, setReadme] = useState('');
   const [readmeStatus, setReadmeStatus] = useState('');
 
-  const [k, setK] = useState(2);
+  const [k, setK] = useState(3);
   const [samples, setSamples] = useState<SampledEntry[]>([]);
   const [samplingState, setSamplingState] = useState('');
 
@@ -113,6 +113,7 @@ export default function PortalApp() {
   const [metadataEditByEntry, setMetadataEditByEntry] = useState<boolean[]>([]);
   const [submitState, setSubmitState] = useState('');
   const [resamplingIndex, setResamplingIndex] = useState<number | null>(null);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
 
   useEffect(() => {
     async function loadTasks() {
@@ -192,6 +193,7 @@ export default function PortalApp() {
     setSamplingState('');
     setSubmitState('');
     setResamplingIndex(null);
+    setIsCheckingDuplicate(false);
   }, [selectedTask]);
 
   function updateQaText(
@@ -223,7 +225,7 @@ export default function PortalApp() {
       });
       setSubmitState('');
     } catch {
-      // Keep editor text as-is; strict validation happens on submit / finish.
+      // Keep editor text as-is; strict validation happens on submit.
     }
   }
 
@@ -271,7 +273,9 @@ export default function PortalApp() {
       setSubmitState('');
     } catch (error) {
       setSubmitState(
-        error instanceof Error ? `Sample #${entryIndex + 1}: ${error.message}` : 'Invalid metadata JSON.'
+        error instanceof Error
+          ? `Sample #${entryIndex + 1}: ${error.message}`
+          : 'Invalid metadata JSON.'
       );
     }
   }
@@ -283,10 +287,11 @@ export default function PortalApp() {
     setSubmitState('');
 
     try {
+      const safeK = Math.max(3, Math.min(20, Math.floor(k || 3)));
       const params = new URLSearchParams({
         datasetName: selectedTask.datasetName,
         taskName: selectedTask.taskName,
-        k: String(k),
+        k: String(safeK),
       });
 
       const res = await fetch(`/api/sample?${params.toString()}`);
@@ -299,6 +304,7 @@ export default function PortalApp() {
       const sampled: SampledEntry[] = data.samples ?? [];
       const built = sampled.map(buildSeedEntry);
 
+      setK(safeK);
       setSamples(sampled);
       setSeedInstructions(built);
       setQaTextByEntry(
@@ -380,75 +386,137 @@ export default function PortalApp() {
     }
   }
 
+  async function checkExistingSubmission(dataset: string, task: string): Promise<boolean> {
+    const params = new URLSearchParams({
+      datasetName: dataset,
+      taskName: task,
+    });
+
+    const res = await fetch(`/api/submissions/check?${params.toString()}`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to check existing submission.');
+    }
+
+    return Boolean(data.exists);
+  }
+
+  async function submitPayload(overwrite: boolean) {
+    if (!selectedTask) return;
+
+    const parsedSeedInstructions = seedInstructions.map((entry, entryIndex) => {
+      const rawQa = qaTextByEntry[entryIndex] ?? { stage1: '', stage2: '' };
+      const rawMetadata = metadataTextByEntry[entryIndex] ?? '';
+
+      const metadata = parseMetadataJson(rawMetadata);
+      const stage1_QA = parseQaJsonl(rawQa.stage1);
+      const stage2_QA = parseQaJsonl(rawQa.stage2);
+
+      if (stage1_QA.length === 0) {
+        throw new Error(`Sample #${entryIndex + 1}: stage-1 QA cannot be empty.`);
+      }
+
+      if (stage2_QA.length === 0) {
+        throw new Error(`Sample #${entryIndex + 1}: stage-2 QA cannot be empty.`);
+      }
+
+      return {
+        metadata,
+        stage1_QA,
+        stage2_QA,
+      };
+    });
+
+    if (!taskDefinition.trim()) {
+      throw new Error('Task definition cannot be empty.');
+    }
+
+    if (parsedSeedInstructions.length < 3) {
+      throw new Error('Please sample at least 3 metadata entries before submitting.');
+    }
+
+    const payload = {
+      datasetName: selectedTask.datasetName,
+      taskName: selectedTask.taskName,
+      taskDefinition,
+      seedInstructions: parsedSeedInstructions,
+      overwrite,
+    };
+
+    const res = await fetch('/api/submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'Submission failed.');
+    }
+
+    setSubmitState(
+      `Submitted successfully. Backend: ${data.saved.backend}. Submission ID: ${data.saved.id}`
+    );
+
+    setTaskDefinition('');
+    setSamples([]);
+    setSeedInstructions([]);
+    setQaTextByEntry([]);
+    setMetadataTextByEntry([]);
+    setMetadataEditByEntry([]);
+    setSamplingState('');
+    setResamplingIndex(null);
+  }
+
   async function handleSubmit() {
     if (!selectedTask) return;
 
     setSubmitState('Submitting...');
+    setIsCheckingDuplicate(true);
 
     try {
-      const parsedSeedInstructions = seedInstructions.map((entry, entryIndex) => {
-        const rawQa = qaTextByEntry[entryIndex] ?? { stage1: '', stage2: '' };
-        const rawMetadata = metadataTextByEntry[entryIndex] ?? '';
-
-        const metadata = parseMetadataJson(rawMetadata);
-        const stage1_QA = parseQaJsonl(rawQa.stage1);
-        const stage2_QA = parseQaJsonl(rawQa.stage2);
-
-        if (stage1_QA.length === 0) {
-          throw new Error(`Sample #${entryIndex + 1}: stage-1 QA cannot be empty.`);
-        }
-
-        if (stage2_QA.length === 0) {
-          throw new Error(`Sample #${entryIndex + 1}: stage-2 QA cannot be empty.`);
-        }
-
-        return {
-          metadata,
-          stage1_QA,
-          stage2_QA,
-        };
-      });
-
-      if (!taskDefinition.trim()) {
-        throw new Error('Task definition cannot be empty.');
-      }
-
-      const payload = {
-        datasetName: selectedTask.datasetName,
-        taskName: selectedTask.taskName,
-        taskDefinition,
-        seedInstructions: parsedSeedInstructions,
-      };
-
-      const res = await fetch('/api/submissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || 'Submission failed.');
-      }
-
-      setSeedInstructions(parsedSeedInstructions);
-      setMetadataTextByEntry(parsedSeedInstructions.map((entry) => formatJsonForEditor(entry.metadata)));
-      setSubmitState(
-        `Submitted successfully. Backend: ${data.saved.backend}. Submission ID: ${data.saved.id}`
+      const exists = await checkExistingSubmission(
+        selectedTask.datasetName,
+        selectedTask.taskName
       );
+
+      let overwrite = false;
+
+      if (exists) {
+        const confirmed = window.confirm(
+          'The same task has already been submitted. Overwrite the existing submission?'
+        );
+
+        if (!confirmed) {
+          setSubmitState('Submission cancelled.');
+          return;
+        }
+
+        overwrite = true;
+      }
+
+      await submitPayload(overwrite);
     } catch (error) {
       setSubmitState(
         error instanceof Error ? error.message : 'Submission failed.'
       );
+    } finally {
+      setIsCheckingDuplicate(false);
     }
   }
 
   const canSubmit =
-    Boolean(selectedTask && taskDefinition.trim() && seedInstructions.length > 0) &&
+    Boolean(selectedTask && taskDefinition.trim() && seedInstructions.length >= 3) &&
     qaTextByEntry.length === seedInstructions.length &&
     metadataTextByEntry.length === seedInstructions.length &&
-    !metadataEditByEntry.some(Boolean);
+    !metadataEditByEntry.some(Boolean) &&
+    !isCheckingDuplicate;
 
   return (
     <div className="page">
@@ -466,40 +534,40 @@ export default function PortalApp() {
             <h2 style={{ margin: 0 }}>Reference materials</h2>
             <div className="notice">
               <div>
-                <strong>Guide Sheet:</strong>{" "}
+                <strong>Guide Sheet:</strong>{' '}
                 <a
                   href="https://hackmd.io/@E6Umx55CRC2KGVCvqHvKHg/ByG1m9g9-e"
                   target="_blank"
                   rel="noreferrer"
                   style={{
-                    display: "inline-block",
-                    padding: "6px 12px",
-                    backgroundColor: "#515151ff",
-                    color: "white",
-                    textDecoration: "none",
-                    borderRadius: "6px",
-                    fontSize: "14px",
-                    fontWeight: "500",
+                    display: 'inline-block',
+                    padding: '6px 12px',
+                    backgroundColor: '#515151ff',
+                    color: 'white',
+                    textDecoration: 'none',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    fontWeight: '500',
                   }}
                 >
                   Open
                 </a>
               </div>
               <div style={{ marginTop: 8 }}>
-                <strong>Example process:</strong>{" "}
+                <strong>Example process:</strong>{' '}
                 <a
                   href="https://chatgpt.com/share/69bb5e82-d2f8-8001-af73-9a17a626095a"
                   target="_blank"
                   rel="noreferrer"
                   style={{
-                    display: "inline-block",
-                    padding: "6px 12px",
-                    backgroundColor: "#515151ff",
-                    color: "white",
-                    textDecoration: "none",
-                    borderRadius: "6px",
-                    fontSize: "14px",
-                    fontWeight: "500",
+                    display: 'inline-block',
+                    padding: '6px 12px',
+                    backgroundColor: '#515151ff',
+                    color: 'white',
+                    textDecoration: 'none',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    fontWeight: '500',
                   }}
                 >
                   Open
@@ -571,10 +639,17 @@ export default function PortalApp() {
                 <label className="label">K sampled entries</label>
                 <input
                   type="number"
-                  min={1}
+                  min={3}
                   max={20}
                   value={k}
-                  onChange={(e) => setK(Number(e.target.value))}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    if (!Number.isFinite(next)) {
+                      setK(3);
+                      return;
+                    }
+                    setK(Math.max(3, Math.min(20, Math.floor(next))));
+                  }}
                 />
               </div>
               <div style={{ alignSelf: 'end' }}>
@@ -618,7 +693,10 @@ export default function PortalApp() {
                 goal of the task in one to three sentences.
               </li>
               <li>
-                It is recommended to copy the sampled metadata entries into your local editor, since the page may occasionally need to be rebuilt. If that happens, you can simply paste the metadata back without resampling and continue editing the seed instructions from where you left off.
+                It is recommended to copy the sampled metadata entries into your local
+                editor, since the page may occasionally need to be rebuilt. If that
+                happens, you can simply paste the metadata back without resampling and
+                continue editing the seed instructions from where you left off.
               </li>
             </ol>
           </div>
@@ -631,7 +709,7 @@ export default function PortalApp() {
               placeholder="Formally define the purpose or goal of this task in 1–3 sentences."
             />
             <button onClick={handleSubmit} disabled={!canSubmit}>
-              Submit
+              {isCheckingDuplicate ? 'Checking...' : 'Submit'}
             </button>
             {submitState && (
               <div
@@ -712,7 +790,9 @@ export default function PortalApp() {
                       type="button"
                       className="secondary"
                       onClick={() => handleResampleEntry(entryIndex)}
-                      disabled={resamplingIndex === entryIndex || metadataEditByEntry[entryIndex]}
+                      disabled={
+                        resamplingIndex === entryIndex || metadataEditByEntry[entryIndex]
+                      }
                     >
                       {resamplingIndex === entryIndex
                         ? 'Resampling...'
@@ -729,7 +809,10 @@ export default function PortalApp() {
                     placeholder='{"id": "...", "text": "..."}'
                   />
                 ) : (
-                  <pre>{metadataTextByEntry[entryIndex] ?? formatJsonForEditor(entry.metadata)}</pre>
+                  <pre>
+                    {metadataTextByEntry[entryIndex] ??
+                      formatJsonForEditor(entry.metadata)}
+                  </pre>
                 )}
 
                 <div className="qa-block stack">
