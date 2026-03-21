@@ -626,7 +626,11 @@ export default function PortalApp() {
                 omit it. Use your judgment.
               </li>
               <li>
-                Make sure the sampled seed instructions are sufficiently diverse in
+                Make sure the sampled metadata entries are sufficiently diverse in
+                the label field.
+              </li>
+              <li>
+                Make sure the seed instructions are sufficiently diverse in
                 wording and form.
               </li>
               <li>
