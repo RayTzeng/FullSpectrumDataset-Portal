@@ -13,4 +13,8 @@ SpeechCommands,Keyword Spotting,FullSpectrumDataset/metadata/SpeechCommands,labe
 VggSound,Audio Event Classification,FullSpectrumDataset/metadata/VggSound,event_label
 MELD,Speech Emotion Recognition,FullSpectrumDataset/metadata/MELD/EmotionRecognition_SentimentClassification,emotion
 MELD,Speech Sentiment Classification,FullSpectrumDataset/metadata/MELD/EmotionRecognition_SentimentClassification,sentiment
-AudioSet,Multi-Label Audio Event Classification,FullSpectrumDataset/metadata/AudioSet/MultiLabelClassificaion,labels
+AudioSet,Multi-Label Audio Event Classification,FullSpectrumDataset/metadata/AudioSet/MultiLabelClassificaion,audio_events
+AudioSet,Multi-Label Vocal Sound Classification,FullSpectrumDataset/metadata/AudioSet/VocalSoundClassification,vocal_sounds
+FSD50k,Multi-Label Audio Event Classification,FullSpectrumDataset/metadata/FSD50k,audio_events
+VocalSound,Vocal Sound Classification,FullSpectrumDataset/metadata/VocalSound,vocal_sound
+ICSD,Infant Cry and Snoring Detection,FullSpectrumDataset/metadata/ICSD,infant_sound
