@@ -18,3 +18,4 @@ AudioSet,Multi-Label Vocal Sound Classification,FullSpectrumDataset/metadata/Aud
 FSD50k,Multi-Label Audio Event Classification,FullSpectrumDataset/metadata/FSD50k,audio_events
 VocalSound,Vocal Sound Classification,FullSpectrumDataset/metadata/VocalSound,vocal_sound
 ICSD,Infant Cry and Snoring Detection,FullSpectrumDataset/metadata/ICSD,infant_sound
+VIMSketch,Vocal Imitation Classification,FullSpectrumDataset/metadata/VIMSketch,imitation_ref
