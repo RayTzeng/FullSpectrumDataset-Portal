@@ -20,3 +20,12 @@ VocalSound,Vocal Sound Classification,FullSpectrumDataset/metadata/VocalSound,vo
 ICSD,Infant Cry and Snoring Detection,FullSpectrumDataset/metadata/ICSD,infant_sound
 VIMSketch,Vocal Imitation Classification,FullSpectrumDataset/metadata/VIMSketch,imitation_ref
 TUT2017,Acoustic Scene Classification,FullSpectrumDataset/metadata/TUT2017,acoustic_scene
+iNatSounds,Species Supercategory Classification,FullSpectrumDataset/metadata/iNatSounds,supercategory
+iNatSounds,Species Name Classification,FullSpectrumDataset/metadata/iNatSounds,common_name
+ASVspoof2024,Synthetic / Fake Speech Detection,FullSpectrumDataset/metadata/ASVspoof2024,real_or_fake
+AVID,Vocal Intensity Classification,FullSpectrumDataset/metadata/AVID,vocal_intensity
+AVID,Sound Pressure Level Prediction,FullSpectrumDataset/metadata/AVID,sound_pressure_level
+MUStARD++,Sarcasm Detection in Speech,FullSpectrumDataset/metadata/MUStARD++/SarcasmDetection,sarcasm
+MUStARD++,Sarcasm Type Classification,FullSpectrumDataset/metadata/MUStARD++/SarcasmTypeClassification,sarcasm_type
+PodSarc,Sarcasm Detection in Speech,FullSpectrumDataset/metadata/PodSarc,sarcasm
+PodSarc,Sarcasm Understanding,FullSpectrumDataset/metadata/PodSarc,sarcasm; comment
