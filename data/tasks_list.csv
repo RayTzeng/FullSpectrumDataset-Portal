@@ -29,3 +29,19 @@ MUStARD++,Sarcasm Detection in Speech,FullSpectrumDataset/metadata/MUStARD++/Sar
 MUStARD++,Sarcasm Type Classification,FullSpectrumDataset/metadata/MUStARD++/SarcasmTypeClassification,sarcasm_type
 PodSarc,Sarcasm Detection in Speech,FullSpectrumDataset/metadata/PodSarc,sarcasm
 PodSarc,Sarcasm Understanding,FullSpectrumDataset/metadata/PodSarc,sarcasm; comment
+SEP28K,Utterance-Level Stuttering Detection,FullSpectrumDataset/metadata/SEP28K,stuttering
+SEP28K,Stuttering Type Classification,FullSpectrumDataset/metadata/SEP28K,stuttering_type
+NSynth,Musical Instrument Classification,FullSpectrumDataset/metadata/NSynth,instrument
+NSynth,Sound Production Method Classification,FullSpectrumDataset/metadata/NSynth,sound_production_method
+MTG-Jamendo,Music Genre Classification,FullSpectrumDataset/metadata/MTG-Jamendo/MusicGenreClassification,genre
+MTG-Jamendo,Musical Instrument Classification,FullSpectrumDataset/metadata/MTG-Jamendo/MusicalInstrumentClassification,instrument
+MTG-Jamendo,Music Mood/Theme Classification,FullSpectrumDataset/metadata/MTG-Jamendo/MusicMoodThemeClassification,moodtheme
+VocalSet,Vocal Technique Classification,FullSpectrumDataset/metadata/VocalSet/VocalTechniqueClassification,vocal_technique
+VocalSet,Vocal Dynamics Classification,FullSpectrumDataset/metadata/VocalSet/VocalDynamicsAndSpeed,vocal_dynamic_type
+EasyCall,Dysarthic Speech Detection,FullSpectrumDataset/metadata/EasyCall,dysarthria_type
+EasyCall,Dysarthia Type Classification,FullSpectrumDataset/metadata/EasyCall,dysarthria_type
+UASpeech,Dysarthric Speech Detection,FullSpectrumDataset/metadata/UASpeech,dysarthria_type
+UASpeech,Dysarthria Type Classification,FullSpectrumDataset/metadata/UASpeech,dysarthria_type
+ParaSpeechCaps,Speech Emotion Recognition,FullSpectrumDataset/metadata/ParaSpeechCaps/SpeechEmotionRecognition,emotions
+ParaSpeechCaps,Sleepy Speech Detection,FullSpectrumDataset/metadata/ParaSpeechCaps/SleepySpeechDetection,sleepiness
+ParaSpeechCaps,Stress Detection in Speech,FullSpectrumDataset/metadata/ParaSpeechCaps/StressDetectionInSpeech,stress
